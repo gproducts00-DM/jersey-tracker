@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -426,7 +427,7 @@ body{font-family:'DM Sans',sans-serif;font-size:15px;color:var(--text);overscrol
 // ══════════════════════════════════════════════════════════════
 //  CONFIG — paste your Apps Script Web App URL here
 // ══════════════════════════════════════════════════════════════
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyzYrqQm2PSkc5Xzv4OXrq9YHXN13AxE6-xbYsJKng4m_0Vrk8_PiSQT7O9ls1vQ6BYSg/exec';
+const SCRIPT_URL = 'YOUR_APPS_SCRIPT_URL_HERE';
 
 // ── FLAGS ─────────────────────────────────────────────────────
 const FLAGS = {
@@ -486,23 +487,32 @@ function showConfigWarn(id){
 // ── API ───────────────────────────────────────────────────────
 async function apiGet(sheet){
   if(!isConfigured()) return [];
-  const url = `${SCRIPT_URL}?action=read&sheet=${sheet}&_=${Date.now()}`;
-  const r = await fetch(url);
-  const json = await r.json();
-  if(json.error) throw new Error(json.error);
-  return json.rows || [];
+  const url = `${SCRIPT_URL}?action=read&sheet=${sheet}&callback=cb_${sheet}&_=${Date.now()}`;
+  return new Promise((resolve, reject) => {
+    const cbName = 'cb_' + sheet + '_' + Date.now();
+    const script = document.createElement('script');
+    const fullUrl = `${SCRIPT_URL}?action=read&sheet=${sheet}&callback=${cbName}&_=${Date.now()}`;
+    window[cbName] = (data) => {
+      delete window[cbName];
+      document.body.removeChild(script);
+      if(data.error) reject(new Error(data.error));
+      else resolve(data.rows || []);
+    };
+    script.onerror = () => { delete window[cbName]; reject(new Error('Network error')); };
+    script.src = fullUrl;
+    document.body.appendChild(script);
+  });
 }
 
 async function apiPost(body){
   if(!isConfigured()) throw new Error('App not configured — see setup guide');
   const r = await fetch(SCRIPT_URL, {
     method:'POST',
-    headers:{'Content-Type':'application/json'},
+    mode:'no-cors',
+    headers:{'Content-Type':'text/plain'},
     body: JSON.stringify(body)
   });
-  const json = await r.json();
-  if(json.error) throw new Error(json.error);
-  return json;
+  return { success: true };
 }
 
 // ── LOAD DATA ─────────────────────────────────────────────────
@@ -776,12 +786,12 @@ async function saveJersey(){
       await apiPost({action:'update', sheet:'inventory', data});
       const idx = inventory.findIndex(j=>j.id===editingId);
       if(idx>-1) inventory[idx] = data;
-      showToast('Jersey updated ✓');
+      showToast('Jersey updated ✓ — refresh to confirm');
     } else {
-      const res = await apiPost({action:'add', sheet:'inventory', data});
-      data.id = res.id;
+      data.id = 'local_' + Date.now();
+      await apiPost({action:'add', sheet:'inventory', data});
       inventory.push(data);
-      showToast('Jersey added ✓');
+      showToast('Jersey saved ✓ — pull down to refresh');
     }
     closeDrawer();
     renderAll();
@@ -814,12 +824,12 @@ async function saveOrder(){
       await apiPost({action:'update', sheet:'orders', data});
       const idx = orders.findIndex(o=>o.id===editingId);
       if(idx>-1) orders[idx] = data;
-      showToast('Order updated ✓');
+      showToast('Order updated ✓ — refresh to confirm');
     } else {
-      const res = await apiPost({action:'add', sheet:'orders', data});
-      data.id = res.id;
+      data.id = 'local_' + Date.now();
+      await apiPost({action:'add', sheet:'orders', data});
       orders.push(data);
-      showToast('Order added ✓');
+      showToast('Order saved ✓ — pull down to refresh');
     }
     closeDrawer();
     renderAll();
@@ -839,7 +849,7 @@ async function confirmDelete(sheet){
     await apiPost({action:'delete', sheet, id: editingId});
     if(sheet==='inventory') inventory = inventory.filter(j=>j.id!==editingId);
     else                    orders    = orders.filter(o=>o.id!==editingId);
-    showToast('Deleted');
+    showToast('Deleted — refresh to confirm');
     closeDrawer();
     renderAll();
   } catch(e){
